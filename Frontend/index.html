@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f3f4f6">
+    <title>Dynamic Drone Pathfinding</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #grid-container {
+            display: grid;
+            grid-template-columns: repeat(20, 20px);
+            grid-template-rows: repeat(20, 20px);
+            gap: 1px;
+            width: max-content;
+            background-color: #d1d5db;
+            touch-action: none;
+            user-select: none;
+        }
+
+        .cell {
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            border: 0;
+            background-color: white;
+            cursor: crosshair;
+        }
+
+        .cell:hover { background-color: #e5e7eb; }
+        .cell.start { background-color: #3b82f6; }
+        .cell.goal { background-color: #22c55e; }
+        .cell.waypoint { background-color: #a855f7; }
+        .cell.obstacle { background-color: #1f2937; }
+        .cell.path {
+            background-color: #facc15;
+            transition: background-color 600ms ease, opacity 600ms ease, transform 600ms ease;
+        }
+        .cell.path-reveal { animation: reveal-path 420ms ease both; }
+        .cell.visited { background-color: #06b6d4; }
+        .cell.path-clearing { background-color: #fff; opacity: 0.15; }
+
+        @keyframes reveal-path {
+            from { opacity: 0; transform: scale(0.55); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .cell.path { transition: none; }
+            .cell.path-reveal { animation: none; }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 px-4 py-8 font-sans text-gray-800 sm:px-6">
+    <main class="mx-auto grid max-w-screen-2xl grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+        <section class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-200" aria-labelledby="page-title">
+            <header class="mb-6 border-b border-gray-200 pb-4">
+                <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-blue-600">Autonomous Delivery Network</p>
+                <h1 id="page-title" class="text-2xl font-bold tracking-tight text-gray-900">Dynamic Drone Pathfinding</h1>
+                <p class="mt-2 text-sm text-gray-600">Plot your route, then drop a No-Fly Zone on the active path to watch the drone instantly reroute!</p>
+            </header>
+
+            <fieldset>
+                <legend class="mb-2 text-sm font-semibold text-gray-700">Grid Click Action</legend>
+                <div class="space-y-2">
+                    <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+                        <input type="radio" name="brush" value="obstacle" checked class="accent-gray-700">
+                        <span class="h-3 w-3 rounded-sm bg-gray-800" aria-hidden="true"></span>
+                        <span>Add Sudden No-Fly Zone</span>
+                    </label>
+                    <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+                        <input type="radio" name="brush" value="waypoint" class="accent-purple-600">
+                        <span class="h-3 w-3 rounded-sm bg-purple-500" aria-hidden="true"></span>
+                        <span>Add Waypoint</span>
+                    </label>
+                    <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+                        <input type="radio" name="brush" value="start" class="accent-blue-600">
+                        <span class="h-3 w-3 rounded-sm bg-blue-500" aria-hidden="true"></span>
+                        <span>Move Hub</span>
+                    </label>
+                    <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+                        <input type="radio" name="brush" value="goal" class="accent-green-600">
+                        <span class="h-3 w-3 rounded-sm bg-green-500" aria-hidden="true"></span>
+                        <span>Move Goal</span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <p id="grid-message" class="mt-4 min-h-10 text-sm text-gray-500" aria-live="polite">
+                Choose a brush. Click or drag across cells to edit the airspace.
+            </p>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+                <button id="planBtn" type="button" class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    Plan Route
+                </button>
+                <button id="clearBtn" type="button" class="rounded-lg bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
+                    Clear Grid
+                </button>
+            </div>
+
+            <section id="telemetry" class="mt-6 hidden rounded-lg border border-gray-200 bg-gray-50 p-4" aria-labelledby="telemetry-title" aria-live="polite">
+                <h2 id="telemetry-title" class="mb-3 text-base font-semibold text-gray-900">Telemetry</h2>
+                <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                    <dt class="font-medium text-gray-500">Route Status</dt>
+                    <dd id="routeStatus" class="text-right font-semibold text-gray-900">Idle</dd>
+                    <dt class="font-medium text-gray-500">Flight Distance</dt>
+                    <dd id="flightDistance" class="text-right font-semibold text-gray-900">—</dd>
+                </dl>
+            </section>
+        </section>
+
+        <div class="grid min-w-0 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
+            <section class="min-w-0 rounded-xl bg-white p-5 shadow-sm ring-1 ring-gray-200 sm:p-6" aria-labelledby="grid-title">
+                <div class="mb-5">
+                    <h2 id="grid-title" class="text-xl font-bold text-gray-900">Urban Airspace</h2>
+                    <p class="mt-1 text-sm text-gray-500">20 × 20 grid · A* dynamic pathfinding</p>
+                </div>
+
+                <div class="overflow-x-auto rounded-lg border border-gray-300 bg-gray-200 p-1">
+                    <div id="grid-container" role="grid" aria-label="20 by 20 drone airspace grid" class="mx-auto"></div>
+                </div>
+
+                <div class="mt-5">
+                    <h3 class="mb-2 text-sm font-semibold text-gray-700">Legend</h3>
+                    <ul class="flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-blue-500" aria-hidden="true"></span>Hub</li>
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-green-500" aria-hidden="true"></span>Goal</li>
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-purple-500" aria-hidden="true"></span>Waypoint</li>
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-gray-800" aria-hidden="true"></span>No-Fly Zone</li>
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-yellow-400" aria-hidden="true"></span>Flight Path</li>
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-cyan-500" aria-hidden="true"></span>Visited</li>
+                        <li class="flex items-center gap-2"><span class="h-4 w-4 rounded-sm bg-green-500" aria-hidden="true"></span>Visited</li>
+                    </ul>
+                </div>
+            </section>
+
+            <aside class="min-w-0 rounded-xl bg-white p-5 shadow-sm ring-1 ring-gray-200 sm:p-6 xl:sticky xl:top-6" aria-labelledby="execution-log-title">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                        <h2 id="execution-log-title" class="text-base font-semibold text-gray-800">Execution Log</h2>
+                        <p class="text-xs text-gray-500">Live route and reroute steps</p>
+                    </div>
+                    <button id="clearLogBtn" type="button" class="rounded-md px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        Clear log
+                    </button>
+                </div>
+                <ol id="executionLogEntries" role="log" aria-live="polite" aria-relevant="additions"
+                    class="max-h-[70vh] min-h-40 space-y-1 overflow-y-auto rounded-md bg-gray-50 p-3 font-mono text-xs text-gray-700 ring-1 ring-gray-200">
+                    <li class="text-gray-400">Waiting for a route planning run…</li>
+                </ol>
+            </aside>
+        </div>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
